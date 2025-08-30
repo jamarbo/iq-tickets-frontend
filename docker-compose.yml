@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # Frontend development
+  frontend-dev:
+    build:
+      context: ./front
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./front:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:3000
+    depends_on:
+      - backend
+    networks:
+      - iq-network
+
+  # Frontend production
+  frontend:
+    build:
+      context: ./front
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    environment:
+      - VITE_API_URL=http://localhost:3001
+    depends_on:
+      - backend
+    networks:
+      - iq-network
+    profiles:
+      - production
+
+  # Backend (assuming it exists in ../backend or similar)
+  backend:
+    build:
+      context: ../backend  # Adjust path as needed
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:password@db:5432/iq_tickets
+      - JWT_SECRET=your-jwt-secret-key
+    depends_on:
+      - db
+    networks:
+      - iq-network
+
+  # Database
+  db:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=iq_tickets
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - iq-network
+
+networks:
+  iq-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
