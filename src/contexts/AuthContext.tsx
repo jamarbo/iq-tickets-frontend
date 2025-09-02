@@ -130,6 +130,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     logout,
     clearError,
     isAdmin: (() => {
+      // 0) Override por email desde env (lista separada por comas)
+      try {
+        const adminEmailsEnv = (import.meta as any)?.env?.VITE_ADMIN_EMAILS
+        if (adminEmailsEnv && state.user?.email) {
+          const list = String(adminEmailsEnv)
+            .split(',')
+            .map((s: string) => s.trim().toLowerCase())
+            .filter(Boolean)
+          if (list.includes(state.user.email.toLowerCase())) return true
+        }
+      } catch {}
+
       // 1) Señal directa en user.role
       if (state.user?.role && state.user.role.toString().toUpperCase().includes('ADMIN')) return true
       // 2) Inferir desde el token (claims: role/roles/authorities/scope/permissions)
