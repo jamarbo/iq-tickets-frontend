@@ -19,9 +19,20 @@ const isAbsoluteUrl = (val: any) => /^https?:\/\//i.test(String(val))
 
 // Fallback seguro en producción: si no hay una URL absoluta configurada, usar el backend de Render
 const DEFAULT_PROD_API_BASE = 'https://ticket-system-spring-boot.onrender.com/api'
-const RESOLVED_API_BASE = ((import.meta as any)?.env?.PROD && !isAbsoluteUrl(ENV_API_BASE))
+
+// Resolución en build-time y refuerzo en runtime por hostname
+const IS_PROD = !!((import.meta as any)?.env?.PROD)
+let RESOLVED_API_BASE = (IS_PROD && !isAbsoluteUrl(ENV_API_BASE))
   ? DEFAULT_PROD_API_BASE
   : ENV_API_BASE
+
+// Si sigue siendo relativo en runtime y estamos en Render (dominio onrender.com), forzamos backend absoluto
+try {
+  const host = (typeof window !== 'undefined' && (window as any)?.location?.hostname) || ''
+  if (!isAbsoluteUrl(RESOLVED_API_BASE) && /onrender\.com$/i.test(String(host))) {
+    RESOLVED_API_BASE = DEFAULT_PROD_API_BASE
+  }
+} catch {}
 
 const API_BASE_IS_ABSOLUTE = isAbsoluteUrl(RESOLVED_API_BASE)
 
