@@ -231,11 +231,29 @@ export const authApi = {
       // Normalización de rol (claims + backendUser)
       let resolvedRole: 'Admin' | 'User' = resolveRole(backendUser, claims)
 
+      // Email inferido para overrides/normalización
+      const emailFromClaims = claims?.sub || claims?.email || credentials.email
+
+      // 0) Override por email desde env: si coincide, forzar Admin
+      try {
+        const adminEmailsEnv = (import.meta as any)?.env?.VITE_ADMIN_EMAILS
+        if (adminEmailsEnv) {
+          const list = String(adminEmailsEnv)
+            .split(',')
+            .map((s: string) => s.trim().toLowerCase())
+            .filter(Boolean)
+          const candidateEmail = (backendUser?.email || emailFromClaims || '').toLowerCase()
+          if (candidateEmail && list.includes(candidateEmail)) {
+            resolvedRole = 'Admin'
+          }
+        }
+      } catch {}
+
       // Intento opcional: obtener perfil solo si no hay señales de roles en backendUser ni en claims
       const hadAnyRoleSignals = resolvedRole === 'Admin' ||
         !!(backendUser?.role || backendUser?.roles || backendUser?.authorities || backendUser?.permissions ||
           (claims && (claims.role || claims.roles || claims.authorities || claims.scope || claims.scopes || claims.permissions)))
-      if (!hadAnyRoleSignals) {
+      if (!hadAnyRoleSignals && resolvedRole !== 'Admin') {
         try {
           const temp = axios.create({ baseURL: RESOLVED_API_BASE })
           const headers = { Authorization: `Bearer ${token}` }
@@ -256,7 +274,6 @@ export const authApi = {
         } catch {}
       }
 
-      const emailFromClaims = claims?.sub || claims?.email || credentials.email
       const authResponse: AuthResponse = {
         token,
         user: {
