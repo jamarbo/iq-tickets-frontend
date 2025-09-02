@@ -141,6 +141,18 @@ const resolveRole = (backendUser: any, claims: any): 'Admin' | 'User' => {
     if (isAdminLike(claims.scope)) return 'Admin' // OIDC
     if (isAdminLike(claims.scopes)) return 'Admin'
     if (isAdminLike(claims.permissions)) return 'Admin'
+    // Keycloak / IdP comunes
+    if (isAdminLike(claims?.realm_access?.roles)) return 'Admin'
+    try {
+      const ra = claims?.resource_access
+      if (ra && typeof ra === 'object') {
+        for (const k of Object.keys(ra)) {
+          if (isAdminLike((ra as any)[k]?.roles)) return 'Admin'
+        }
+      }
+    } catch {}
+    if (isAdminLike((claims as any)['cognito:groups'])) return 'Admin'
+    if (isAdminLike((claims as any)['groups'])) return 'Admin'
     if (Array.isArray(claims.authorities)) {
       for (const auth of claims.authorities) {
         if (isAdminLike((auth as any)?.authority)) return 'Admin'
@@ -255,7 +267,7 @@ export const authApi = {
         },
       }
       
-      console.log('✅ Auth response created:', authResponse)
+  console.log('✅ Auth response created (role resolved):', authResponse.user.role)
       return authResponse
     } catch (error) {
       console.error('❌ Login request failed:', error)

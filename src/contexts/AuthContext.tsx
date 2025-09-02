@@ -129,7 +129,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     login,
     logout,
     clearError,
-    isAdmin: !!state.user?.role && state.user.role.toString().toUpperCase().includes('ADMIN'),
+    isAdmin: (() => {
+      // 1) Señal directa en user.role
+      if (state.user?.role && state.user.role.toString().toUpperCase().includes('ADMIN')) return true
+      // 2) Inferir desde el token (claims: role/roles/authorities/scope/permissions)
+      try {
+        const token = authApi.getStoredToken()
+        if (!token) return false
+        const base64 = token.split('.')[1]
+        if (!base64) return false
+        const json = JSON.parse(decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')))
+        const toList = (x: any): string[] => Array.isArray(x) ? x.map(String) : typeof x === 'string' ? x.split(/[ ,]+/) : x ? [String(x)] : []
+        const values = [
+          ...toList(json.role),
+          ...toList(json.roles),
+          ...toList(json.authorities),
+          ...toList(json.scope),
+          ...toList(json.scopes),
+          ...toList(json.permissions),
+        ].map(s => s.toUpperCase())
+        if (values.some(v => v.includes('ADMIN') || v === 'ROLE_ADMIN')) return true
+        if (Array.isArray(json.authorities)) {
+          for (const a of json.authorities) {
+            const v = String((a as any)?.authority || '').toUpperCase()
+            if (v.includes('ADMIN') || v === 'ROLE_ADMIN') return true
+          }
+        }
+      } catch {}
+      return false
+    })(),
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
