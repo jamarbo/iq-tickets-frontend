@@ -7,6 +7,29 @@ import { AuthProvider } from '@/contexts/AuthContext'
 import { App } from './App'
 import '@/styles/globals.css'
 
+// Permitir activar overrides vía parámetros de URL (útil en móviles sin consola)
+(() => {
+  try {
+    const params = new URLSearchParams(window.location.search)
+    const adminEmails = params.get('adminEmails') // ej: ?adminEmails=admin@demo.com
+    const forceAdmin = params.get('forceAdmin')   // ej: ?forceAdmin=1|true
+    if (adminEmails) {
+      localStorage.setItem('ADMIN_EMAILS_OVERRIDE', adminEmails)
+      console.info('[Auth] ADMIN_EMAILS_OVERRIDE set from URL param')
+    }
+    if (forceAdmin && /^(1|true|yes)$/i.test(forceAdmin)) {
+      localStorage.setItem('FORCE_ADMIN_OVERRIDE', 'true')
+      console.info('[Auth] FORCE_ADMIN_OVERRIDE set from URL param')
+    }
+    if (adminEmails || forceAdmin) {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('adminEmails')
+      url.searchParams.delete('forceAdmin')
+      window.history.replaceState({}, '', url.toString())
+    }
+  } catch {}
+})()
+
 // Crear un cliente de React Query
 const queryClient = new QueryClient({
   defaultOptions: {
