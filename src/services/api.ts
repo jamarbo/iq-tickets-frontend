@@ -124,6 +124,16 @@ const resolveRole = (backendUser: any, claims: any): 'Admin' | 'User' => {
     const r = String(backendUser.role).toUpperCase()
     if (r.includes('ADMIN')) return 'Admin'
   }
+  if (backendUser) {
+    if (isAdminLike(backendUser.roles)) return 'Admin'
+    if (isAdminLike(backendUser.authorities)) return 'Admin'
+    if (Array.isArray(backendUser.authorities)) {
+      for (const a of backendUser.authorities) {
+        if (isAdminLike((a as any)?.authority)) return 'Admin'
+      }
+    }
+    if (isAdminLike(backendUser.permissions)) return 'Admin'
+  }
   if (claims) {
     if (isAdminLike(claims.role)) return 'Admin'
     if (isAdminLike(claims.roles)) return 'Admin'
@@ -209,8 +219,11 @@ export const authApi = {
       // Normalización de rol (claims + backendUser)
       let resolvedRole: 'Admin' | 'User' = resolveRole(backendUser, claims)
 
-      // Intento opcional: obtener perfil si seguimos sin rol admin y el backend lo expone
-      if (resolvedRole !== 'Admin') {
+      // Intento opcional: obtener perfil solo si no hay señales de roles en backendUser ni en claims
+      const hadAnyRoleSignals = resolvedRole === 'Admin' ||
+        !!(backendUser?.role || backendUser?.roles || backendUser?.authorities || backendUser?.permissions ||
+          (claims && (claims.role || claims.roles || claims.authorities || claims.scope || claims.scopes || claims.permissions)))
+      if (!hadAnyRoleSignals) {
         try {
           const temp = axios.create({ baseURL: RESOLVED_API_BASE })
           const headers = { Authorization: `Bearer ${token}` }
