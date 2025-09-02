@@ -234,19 +234,32 @@ export const authApi = {
       // Email inferido para overrides/normalización
       const emailFromClaims = claims?.sub || claims?.email || credentials.email
 
-      // 0) Override por email desde env: si coincide, forzar Admin
+      // 0) Override por email desde env o localStorage: si coincide, forzar Admin
       try {
         const adminEmailsEnv = (import.meta as any)?.env?.VITE_ADMIN_EMAILS
-        if (adminEmailsEnv) {
-          const list = String(adminEmailsEnv)
+        const adminEmailsLS = (() => {
+          try { return localStorage.getItem('ADMIN_EMAILS_OVERRIDE') || '' } catch { return '' }
+        })()
+        const source = [adminEmailsEnv, adminEmailsLS].filter(Boolean).join(',')
+        if (source) {
+          const list = String(source)
             .split(',')
             .map((s: string) => s.trim().toLowerCase())
             .filter(Boolean)
           const candidateEmail = (backendUser?.email || emailFromClaims || '').toLowerCase()
           if (candidateEmail && list.includes(candidateEmail)) {
             resolvedRole = 'Admin'
+            console.info('[Auth] Admin override applied for email:', candidateEmail)
           }
         }
+        // Fuerza bruta opcional desde localStorage
+        try {
+          const force = localStorage.getItem('FORCE_ADMIN_OVERRIDE')
+          if (force && force.toLowerCase() === 'true') {
+            resolvedRole = 'Admin'
+            console.info('[Auth] FORCE_ADMIN_OVERRIDE=true applied')
+          }
+        } catch {}
       } catch {}
 
       // Intento opcional: obtener perfil solo si no hay señales de roles en backendUser ni en claims

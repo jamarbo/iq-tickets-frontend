@@ -133,13 +133,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // 0) Override por email desde env (lista separada por comas)
       try {
         const adminEmailsEnv = (import.meta as any)?.env?.VITE_ADMIN_EMAILS
-        if (adminEmailsEnv && state.user?.email) {
-          const list = String(adminEmailsEnv)
+        const adminEmailsLS = (() => { try { return localStorage.getItem('ADMIN_EMAILS_OVERRIDE') || '' } catch { return '' } })()
+        const source = [adminEmailsEnv, adminEmailsLS].filter(Boolean).join(',')
+        if (source && state.user?.email) {
+          const list = String(source)
             .split(',')
             .map((s: string) => s.trim().toLowerCase())
             .filter(Boolean)
           if (list.includes(state.user.email.toLowerCase())) return true
         }
+      } catch {}
+
+      // 0.b) Fuerza bruta opcional
+      try {
+        const force = localStorage.getItem('FORCE_ADMIN_OVERRIDE')
+        if (force && force.toLowerCase() === 'true') return true
       } catch {}
 
       // 1) Señal directa en user.role
