@@ -93,35 +93,38 @@ export const authApi = {
     console.log('📤 Sending login request:', credentials)
     
     try {
-      // Simulación local de credenciales de demo (sin llamar al backend)
+      // Simulación local de credenciales de demo SOLO si VITE_DEMO=true
+      const isEnvDemoEnabled = () => String((import.meta as any)?.env?.VITE_DEMO).toLowerCase() === 'true'
       const email = (credentials.email || '').trim().toLowerCase()
       const password = (credentials.password || '').trim()
-      if (email === 'admin@demo.com' && password === 'password') {
-        const demoAdminResponse: AuthResponse = {
-          token: 'demo-admin-token-12345',
-          user: {
-            id: 'admin-1',
-            email: 'admin@demo.com',
-            name: 'Admin Demo',
-            role: 'Admin',
-          },
+      if (isEnvDemoEnabled()) {
+        if (email === 'admin@demo.com' && password === 'password') {
+          const demoAdminResponse: AuthResponse = {
+            token: 'demo-admin-token-12345',
+            user: {
+              id: 'admin-1',
+              email: 'admin@demo.com',
+              name: 'Admin Demo',
+              role: 'Admin',
+            },
+          }
+          console.log('✅ Demo Admin login successful:', demoAdminResponse)
+          return demoAdminResponse
         }
-        console.log('✅ Demo Admin login successful:', demoAdminResponse)
-        return demoAdminResponse
-      }
-      
-      if (email === 'user@demo.com' && password === 'password') {
-        const demoUserResponse: AuthResponse = {
-          token: 'demo-user-token-67890',
-          user: {
-            id: 'user-1',
-            email: 'user@demo.com',
-            name: 'User Demo',
-            role: 'User',
-          },
+        
+        if (email === 'user@demo.com' && password === 'password') {
+          const demoUserResponse: AuthResponse = {
+            token: 'demo-user-token-67890',
+            user: {
+              id: 'user-1',
+              email: 'user@demo.com',
+              name: 'User Demo',
+              role: 'User',
+            },
+          }
+          console.log('✅ Demo User login successful:', demoUserResponse)
+          return demoUserResponse
         }
-        console.log('✅ Demo User login successful:', demoUserResponse)
-        return demoUserResponse
       }
 
       // Petición real al backend
@@ -217,14 +220,9 @@ export const authApi = {
 
 // ===== Modo DEMO: helpers y almacenamiento local de tickets =====
 const isDemoMode = (): boolean => {
-  // Permitir forzar demo vía variable de entorno (Vite)
-  // VITE_DEMO=true activa el modo demo sin depender del token
+  // Solo habilitado explícitamente por variable de entorno
   const envFlag = (import.meta as any)?.env?.VITE_DEMO
-  if (String(envFlag).toLowerCase() === 'true') return true
-
-  // Fallback: detectar por prefijo de token demo-
-  const token = authApi.getStoredToken()
-  return !!token && token.startsWith('demo-')
+  return String(envFlag).toLowerCase() === 'true'
 }
 
 type TicketShape = Partial<Ticket> & {
