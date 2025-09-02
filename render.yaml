@@ -14,3 +14,5 @@ services:
         value: https://ticket-system-spring-boot.onrender.com/api
       - key: VITE_DEMO
         value: "false"
+      - key: VITE_ADMIN_EMAILS
+        value: "admin@demo.com"
