@@ -40,9 +40,8 @@ console.info(`[API] baseURL: ${RESOLVED_API_BASE} (absolute=${API_BASE_IS_ABSOLU
 
 const apiClient = axios.create({
   baseURL: RESOLVED_API_BASE,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  // Importante: no fijar Content-Type global para evitar preflight innecesario en GET.
+  // Estableceremos Content-Type por petición cuando haga falta.
   // Si apuntamos a un dominio externo (Render), no enviamos cookies por defecto.
   withCredentials: !API_BASE_IS_ABSOLUTE,
 })
@@ -108,6 +107,39 @@ const parseJwt = (token: string): any => {
   }
 }
 
+// Inferir si es admin a partir de diferentes formatos de claims/props
+const isAdminLike = (val: any): boolean => {
+  if (!val) return false
+  const toList = (x: any): string[] => {
+    if (Array.isArray(x)) return x.map(String)
+    if (typeof x === 'string') return x.split(/[ ,]+/)
+    return [String(x)]
+  }
+  const values = toList(val).map((s) => s.toUpperCase())
+  return values.some((s) => s.includes('ADMIN'))
+}
+
+const resolveRole = (backendUser: any, claims: any): 'Admin' | 'User' => {
+  if (backendUser?.role) {
+    const r = String(backendUser.role).toUpperCase()
+    if (r.includes('ADMIN')) return 'Admin'
+  }
+  if (claims) {
+    if (isAdminLike(claims.role)) return 'Admin'
+    if (isAdminLike(claims.roles)) return 'Admin'
+    if (isAdminLike(claims.authorities)) return 'Admin'
+    if (isAdminLike(claims.scope)) return 'Admin' // OIDC
+    if (isAdminLike(claims.scopes)) return 'Admin'
+    if (isAdminLike(claims.permissions)) return 'Admin'
+    if (Array.isArray(claims.authorities)) {
+      for (const auth of claims.authorities) {
+        if (isAdminLike((auth as any)?.authority)) return 'Admin'
+      }
+    }
+  }
+  return 'User'
+}
+
 // API de Autenticación
 export const authApi = {
   login: async (credentials: LoginCredentials): Promise<AuthResponse> => {
@@ -149,7 +181,24 @@ export const authApi = {
       }
 
       // Petición real al backend
-      const response = await apiClient.post<{ token: string; user?: any }>('/auth/login', credentials)
+      let response: AxiosResponse<{ token: string; user?: any }>
+      try {
+        // Intento 1: JSON
+        response = await apiClient.post('/auth/login', credentials, {
+          headers: { 'Content-Type': 'application/json' },
+        })
+      } catch (err1: any) {
+        // Intento 2: application/x-www-form-urlencoded (Spring clásico)
+        const form = new URLSearchParams()
+        // Intentar con email/username
+  if (credentials.email) form.append('email', credentials.email)
+  const maybeUsername = (credentials as any).username
+  if (maybeUsername) form.append('username', String(maybeUsername))
+  form.append('password', credentials.password)
+        response = await apiClient.post('/auth/login', form, {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        })
+      }
       
       console.log('📥 Login response received:', response.data)
       
@@ -157,29 +206,30 @@ export const authApi = {
       const claims = parseJwt(token)
       const backendUser = (response.data as any).user
 
-      // Normalización de rol
-      const resolvedRole: 'Admin' | 'User' = (() => {
-        if (backendUser?.role === 'Admin' || backendUser?.role === 'ADMIN') return 'Admin'
-        if (backendUser?.role === 'User' || backendUser?.role === 'USER') return 'User'
-        
-        if (claims) {
-          const checkClaim = (val: any): boolean => {
-            if (!val) return false
-            const str = String(val).toUpperCase()
-            return str.includes('ADMIN') || str === 'ROLE_ADMIN'
-          }
-          
-          if (checkClaim(claims.role)) return 'Admin'
-          if (Array.isArray(claims.roles) && claims.roles.some(checkClaim)) return 'Admin'
-          if (Array.isArray(claims.authorities)) {
-            for (const auth of claims.authorities) {
-              if (checkClaim(auth) || checkClaim(auth?.authority)) return 'Admin'
+      // Normalización de rol (claims + backendUser)
+      let resolvedRole: 'Admin' | 'User' = resolveRole(backendUser, claims)
+
+      // Intento opcional: obtener perfil si seguimos sin rol admin y el backend lo expone
+      if (resolvedRole !== 'Admin') {
+        try {
+          const temp = axios.create({ baseURL: RESOLVED_API_BASE })
+          const headers = { Authorization: `Bearer ${token}` }
+          const candidates = ['/auth/me', '/users/me', '/me']
+          for (const path of candidates) {
+            try {
+              const me = await temp.get(path, { headers, withCredentials: false })
+              const maybeRole = resolveRole(me.data, me.data)
+              if (maybeRole === 'Admin') {
+                resolvedRole = 'Admin'
+                backendUser.role = 'Admin'
+                break
+              }
+            } catch {
+              // probar siguiente
             }
           }
-        }
-        
-        return 'User'
-      })()
+        } catch {}
+      }
 
       const emailFromClaims = claims?.sub || claims?.email || credentials.email
       const authResponse: AuthResponse = {
