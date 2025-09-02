@@ -11,12 +11,19 @@ import {
 } from '@/types'
 
 // Crear instancia de axios
+const API_BASE = (import.meta as any)?.env?.VITE_API_BASE
+  || (import.meta as any)?.env?.VITE_API_URL
+  || '/api'
+
+const API_BASE_IS_ABSOLUTE = /^https?:\/\//i.test(String(API_BASE))
+
 const apiClient = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE,
   headers: {
     'Content-Type': 'application/json',
   },
-  withCredentials: true,
+  // Si apuntamos a un dominio externo (Render), no enviamos cookies por defecto.
+  withCredentials: !API_BASE_IS_ABSOLUTE,
 })
 
 // Interceptor de petición para añadir token de autenticación
