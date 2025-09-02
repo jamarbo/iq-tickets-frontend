@@ -11,14 +11,24 @@ import {
 } from '@/types'
 
 // Crear instancia de axios
-const API_BASE = (import.meta as any)?.env?.VITE_API_BASE
+const ENV_API_BASE = (import.meta as any)?.env?.VITE_API_BASE
   || (import.meta as any)?.env?.VITE_API_URL
   || '/api'
 
-const API_BASE_IS_ABSOLUTE = /^https?:\/\//i.test(String(API_BASE))
+const isAbsoluteUrl = (val: any) => /^https?:\/\//i.test(String(val))
+
+// Fallback seguro en producción: si no hay una URL absoluta configurada, usar el backend de Render
+const DEFAULT_PROD_API_BASE = 'https://ticket-system-spring-boot.onrender.com/api'
+const RESOLVED_API_BASE = ((import.meta as any)?.env?.PROD && !isAbsoluteUrl(ENV_API_BASE))
+  ? DEFAULT_PROD_API_BASE
+  : ENV_API_BASE
+
+const API_BASE_IS_ABSOLUTE = isAbsoluteUrl(RESOLVED_API_BASE)
+
+console.info(`[API] baseURL: ${RESOLVED_API_BASE} (absolute=${API_BASE_IS_ABSOLUTE})`)
 
 const apiClient = axios.create({
-  baseURL: API_BASE,
+  baseURL: RESOLVED_API_BASE,
   headers: {
     'Content-Type': 'application/json',
   },
