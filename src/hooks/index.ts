@@ -104,6 +104,21 @@ export const useDeleteTicket = () => {
   )
 }
 
+// Hook para consultar permisos de un ticket (fail-closed en error)
+export const useTicketPermissions = (id?: string) => {
+  const { isAuthenticated } = useAuth()
+  return useQuery(
+    ['ticket-permissions', id],
+    () => ticketsApi.getTicketPermissions(id as string),
+    {
+      enabled: !!id && isAuthenticated,
+      retry: 1,
+      onError: () => { /* fail-closed: no toast */ },
+      select: (data) => ({ canDelete: !!data?.canDelete }),
+    }
+  )
+}
+
 // Hook para manejar el estado de filtros
 export const useTicketFilters = (initialFilters: TicketFilters = {}) => {
   const [filters, setFilters] = useState<TicketFilters>({

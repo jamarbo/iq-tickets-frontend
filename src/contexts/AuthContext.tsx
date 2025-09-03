@@ -84,20 +84,26 @@ const initialState: AuthState = {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(authReducer, initialState)
 
-  // Verificar autenticación almacenada al montar
+  // Verificar autenticación: si hay token, consultar /users/me y cachear rol del backend
   useEffect(() => {
-    const checkStoredAuth = () => {
-      const storedUser = authApi.getStoredUser()
+    const bootstrap = async () => {
       const storedToken = authApi.getStoredToken()
-
-      if (storedUser && storedToken) {
-        dispatch({ type: 'LOGIN_SUCCESS', payload: storedUser })
-      } else {
+      if (!storedToken) {
+        dispatch({ type: 'SET_LOADING', payload: false })
+        return
+      }
+      try {
+        const me = await authApi.fetchMe()
+        // Actualizar el cache local
+        try { localStorage.setItem('user', JSON.stringify(me)) } catch {}
+        dispatch({ type: 'LOGIN_SUCCESS', payload: me })
+      } catch (err) {
+        // Si falla (401, etc.), limpiar sesión
+        authApi.logout()
         dispatch({ type: 'SET_LOADING', payload: false })
       }
     }
-
-    checkStoredAuth()
+    bootstrap()
   }, [])
 
   const login = useCallback(async (credentials: LoginCredentials) => {
@@ -129,55 +135,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     login,
     logout,
     clearError,
-    isAdmin: (() => {
-      // 0) Override por email desde env (lista separada por comas)
-      try {
-        const adminEmailsEnv = (import.meta as any)?.env?.VITE_ADMIN_EMAILS
-        const adminEmailsLS = (() => { try { return localStorage.getItem('ADMIN_EMAILS_OVERRIDE') || '' } catch { return '' } })()
-        const source = [adminEmailsEnv, adminEmailsLS].filter(Boolean).join(',')
-        if (source && state.user?.email) {
-          const list = String(source)
-            .split(',')
-            .map((s: string) => s.trim().toLowerCase())
-            .filter(Boolean)
-          if (list.includes(state.user.email.toLowerCase())) return true
-        }
-      } catch {}
-
-      // 0.b) Fuerza bruta opcional
-      try {
-        const force = localStorage.getItem('FORCE_ADMIN_OVERRIDE')
-        if (force && force.toLowerCase() === 'true') return true
-      } catch {}
-
-      // 1) Señal directa en user.role
-      if (state.user?.role && state.user.role.toString().toUpperCase().includes('ADMIN')) return true
-      // 2) Inferir desde el token (claims: role/roles/authorities/scope/permissions)
-      try {
-        const token = authApi.getStoredToken()
-        if (!token) return false
-        const base64 = token.split('.')[1]
-        if (!base64) return false
-        const json = JSON.parse(decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')))
-        const toList = (x: any): string[] => Array.isArray(x) ? x.map(String) : typeof x === 'string' ? x.split(/[ ,]+/) : x ? [String(x)] : []
-        const values = [
-          ...toList(json.role),
-          ...toList(json.roles),
-          ...toList(json.authorities),
-          ...toList(json.scope),
-          ...toList(json.scopes),
-          ...toList(json.permissions),
-        ].map(s => s.toUpperCase())
-        if (values.some(v => v.includes('ADMIN') || v === 'ROLE_ADMIN')) return true
-        if (Array.isArray(json.authorities)) {
-          for (const a of json.authorities) {
-            const v = String((a as any)?.authority || '').toUpperCase()
-            if (v.includes('ADMIN') || v === 'ROLE_ADMIN') return true
-          }
-        }
-      } catch {}
-      return false
-    })(),
+  // No inferir en cliente; usar el rol cacheado del backend
+  isAdmin: state.user?.role === 'Admin',
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

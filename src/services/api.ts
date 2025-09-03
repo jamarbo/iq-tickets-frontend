@@ -90,76 +90,12 @@ apiClient.interceptors.response.use(
   }
 )
 
-// Decodificar el JWT de forma segura
-const parseJwt = (token: string): any => {
-  try {
-    const base64Url = token.split('.')[1]
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
-    const jsonPayload = decodeURIComponent(
-      atob(base64)
-        .split('')
-        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-        .join('')
-    )
-    return JSON.parse(jsonPayload)
-  } catch {
-    return null
-  }
-}
+// Ya no se decodifica JWT en cliente para inferir roles; el backend define el rol.
 
-// Inferir si es admin a partir de diferentes formatos de claims/props
-const isAdminLike = (val: any): boolean => {
-  if (!val) return false
-  const toList = (x: any): string[] => {
-    if (Array.isArray(x)) return x.map(String)
-    if (typeof x === 'string') return x.split(/[ ,]+/)
-    return [String(x)]
-  }
-  const values = toList(val).map((s) => s.toUpperCase())
-  return values.some((s) => s.includes('ADMIN'))
-}
-
-const resolveRole = (backendUser: any, claims: any): 'Admin' | 'User' => {
-  if (backendUser?.role) {
-    const r = String(backendUser.role).toUpperCase()
-    if (r.includes('ADMIN')) return 'Admin'
-  }
-  if (backendUser) {
-    if (isAdminLike(backendUser.roles)) return 'Admin'
-    if (isAdminLike(backendUser.authorities)) return 'Admin'
-    if (Array.isArray(backendUser.authorities)) {
-      for (const a of backendUser.authorities) {
-        if (isAdminLike((a as any)?.authority)) return 'Admin'
-      }
-    }
-    if (isAdminLike(backendUser.permissions)) return 'Admin'
-  }
-  if (claims) {
-    if (isAdminLike(claims.role)) return 'Admin'
-    if (isAdminLike(claims.roles)) return 'Admin'
-    if (isAdminLike(claims.authorities)) return 'Admin'
-    if (isAdminLike(claims.scope)) return 'Admin' // OIDC
-    if (isAdminLike(claims.scopes)) return 'Admin'
-    if (isAdminLike(claims.permissions)) return 'Admin'
-    // Keycloak / IdP comunes
-    if (isAdminLike(claims?.realm_access?.roles)) return 'Admin'
-    try {
-      const ra = claims?.resource_access
-      if (ra && typeof ra === 'object') {
-        for (const k of Object.keys(ra)) {
-          if (isAdminLike((ra as any)[k]?.roles)) return 'Admin'
-        }
-      }
-    } catch {}
-    if (isAdminLike((claims as any)['cognito:groups'])) return 'Admin'
-    if (isAdminLike((claims as any)['groups'])) return 'Admin'
-    if (Array.isArray(claims.authorities)) {
-      for (const auth of claims.authorities) {
-        if (isAdminLike((auth as any)?.authority)) return 'Admin'
-      }
-    }
-  }
-  return 'User'
+// Normalización simple del rol devuelto por backend
+const normalizeRole = (role: any): 'Admin' | 'User' => {
+  const r = String(role || '').toUpperCase()
+  return r.includes('ADMIN') ? 'Admin' : 'User'
 }
 
 // API de Autenticación
@@ -168,136 +104,20 @@ export const authApi = {
     console.log('📤 Sending login request:', credentials)
     
     try {
-      // Simulación local de credenciales de demo SOLO si VITE_DEMO=true
-      const isEnvDemoEnabled = () => String((import.meta as any)?.env?.VITE_DEMO).toLowerCase() === 'true'
-      const email = (credentials.email || '').trim().toLowerCase()
-      const password = (credentials.password || '').trim()
-      if (isEnvDemoEnabled()) {
-        if (email === 'admin@demo.com' && password === 'password') {
-          const demoAdminResponse: AuthResponse = {
-            token: 'demo-admin-token-12345',
-            user: {
-              id: 'admin-1',
-              email: 'admin@demo.com',
-              name: 'Admin Demo',
-              role: 'Admin',
-            },
-          }
-          console.log('✅ Demo Admin login successful:', demoAdminResponse)
-          return demoAdminResponse
-        }
-        
-        if (email === 'user@demo.com' && password === 'password') {
-          const demoUserResponse: AuthResponse = {
-            token: 'demo-user-token-67890',
-            user: {
-              id: 'user-1',
-              email: 'user@demo.com',
-              name: 'User Demo',
-              role: 'User',
-            },
-          }
-          console.log('✅ Demo User login successful:', demoUserResponse)
-          return demoUserResponse
-        }
-      }
+      // Petición real: JSON {token}
+      const response: AxiosResponse<{ token: string }> = await apiClient.post('/auth/login', credentials, {
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      // Petición real al backend
-      let response: AxiosResponse<{ token: string; user?: any }>
-      try {
-        // Intento 1: JSON
-        response = await apiClient.post('/auth/login', credentials, {
-          headers: { 'Content-Type': 'application/json' },
-        })
-      } catch (err1: any) {
-        // Intento 2: application/x-www-form-urlencoded (Spring clásico)
-        const form = new URLSearchParams()
-        // Intentar con email/username
-  if (credentials.email) form.append('email', credentials.email)
-  const maybeUsername = (credentials as any).username
-  if (maybeUsername) form.append('username', String(maybeUsername))
-  form.append('password', credentials.password)
-        response = await apiClient.post('/auth/login', form, {
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        })
-      }
-      
-      console.log('📥 Login response received:', response.data)
-      
       const token = response.data.token
-      const claims = parseJwt(token)
-      const backendUser = (response.data as any).user
 
-      // Normalización de rol (claims + backendUser)
-      let resolvedRole: 'Admin' | 'User' = resolveRole(backendUser, claims)
-
-      // Email inferido para overrides/normalización
-      const emailFromClaims = claims?.sub || claims?.email || credentials.email
-
-      // 0) Override por email desde env o localStorage: si coincide, forzar Admin
-      try {
-        const adminEmailsEnv = (import.meta as any)?.env?.VITE_ADMIN_EMAILS
-        const adminEmailsLS = (() => {
-          try { return localStorage.getItem('ADMIN_EMAILS_OVERRIDE') || '' } catch { return '' }
-        })()
-        const source = [adminEmailsEnv, adminEmailsLS].filter(Boolean).join(',')
-        if (source) {
-          const list = String(source)
-            .split(',')
-            .map((s: string) => s.trim().toLowerCase())
-            .filter(Boolean)
-          const candidateEmail = (backendUser?.email || emailFromClaims || '').toLowerCase()
-          if (candidateEmail && list.includes(candidateEmail)) {
-            resolvedRole = 'Admin'
-            console.info('[Auth] Admin override applied for email:', candidateEmail)
-          }
-        }
-        // Fuerza bruta opcional desde localStorage
-        try {
-          const force = localStorage.getItem('FORCE_ADMIN_OVERRIDE')
-          if (force && force.toLowerCase() === 'true') {
-            resolvedRole = 'Admin'
-            console.info('[Auth] FORCE_ADMIN_OVERRIDE=true applied')
-          }
-        } catch {}
-      } catch {}
-
-      // Intento opcional: obtener perfil solo si no hay señales de roles en backendUser ni en claims
-      const hadAnyRoleSignals = resolvedRole === 'Admin' ||
-        !!(backendUser?.role || backendUser?.roles || backendUser?.authorities || backendUser?.permissions ||
-          (claims && (claims.role || claims.roles || claims.authorities || claims.scope || claims.scopes || claims.permissions)))
-      if (!hadAnyRoleSignals && resolvedRole !== 'Admin') {
-        try {
-          const temp = axios.create({ baseURL: RESOLVED_API_BASE })
-          const headers = { Authorization: `Bearer ${token}` }
-          const candidates = ['/auth/me', '/users/me', '/me']
-          for (const path of candidates) {
-            try {
-              const me = await temp.get(path, { headers, withCredentials: false })
-              const maybeRole = resolveRole(me.data, me.data)
-              if (maybeRole === 'Admin') {
-                resolvedRole = 'Admin'
-                backendUser.role = 'Admin'
-                break
-              }
-            } catch {
-              // probar siguiente
-            }
-          }
-        } catch {}
-      }
-
+      // Con el token, consultar el perfil al backend
+      const me = await authApi.fetchMe(token)
       const authResponse: AuthResponse = {
         token,
-        user: {
-          id: backendUser?.id || claims?.id || '1',
-          email: backendUser?.email || emailFromClaims,
-          name: backendUser?.name || (emailFromClaims ? String(emailFromClaims).split('@')[0] : 'User'),
-          role: resolvedRole,
-        },
+        user: me,
       }
-      
-  console.log('✅ Auth response created (role resolved):', authResponse.user.role)
+      console.log('✅ Auth response created (role from backend):', authResponse.user.role)
       return authResponse
     } catch (error) {
       console.error('❌ Login request failed:', error)
@@ -341,6 +161,23 @@ export const authApi = {
 
   getStoredToken: () => {
     return localStorage.getItem('auth_token')
+  },
+
+  // Obtener el usuario actual desde backend
+  fetchMe: async (tokenOverride?: string) => {
+    // Si se pasa un token explícito (caso login), usarlo en un cliente temporal
+    const client = tokenOverride
+      ? axios.create({ baseURL: RESOLVED_API_BASE, headers: { Authorization: `Bearer ${tokenOverride}` } })
+      : apiClient
+    const resp: AxiosResponse<{ email: string; name?: string; role?: string | null; id?: string }>
+      = await client.get('/users/me')
+    const data = resp.data || ({} as any)
+    return {
+      id: data.id || data.email || 'me',
+      email: data.email,
+      name: data.name || (data.email ? String(data.email).split('@')[0] : 'User'),
+      role: normalizeRole(data.role),
+    }
   },
 }
 
@@ -505,6 +342,17 @@ export const ticketsApi = {
     }
     await apiClient.delete(`/tickets/${id}`)
   },
+
+  // Consulta de permisos específica por ticket
+  getTicketPermissions: async (id: string): Promise<{ canDelete: boolean }> => {
+    if (isDemoMode()) {
+      const stored = authApi.getStoredUser()
+      const canDelete = stored?.role === 'Admin'
+      return { canDelete }
+    }
+    const resp: AxiosResponse<{ canDelete: boolean }> = await apiClient.get(`/tickets/${id}/permissions`)
+    return resp.data
+  },
 }
 
 // Utilidad para manejo de errores
@@ -524,7 +372,7 @@ export const handleApiError = (error: any, context?: 'login' | 'general'): ApiEr
         }
         break
       case 403:
-        message = 'No tienes permisos para realizar esta acción.'
+  message = 'No autorizado'
         break
       case 404:
         message = 'El recurso solicitado no existe o no está disponible.'

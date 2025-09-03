@@ -93,6 +93,3 @@ temp/
 
 # Vite
 .vite/
-
-# Local backend helper (ignore)
-backend/

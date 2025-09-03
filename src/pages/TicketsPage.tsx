@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useTickets, useTicketFilters, useDeleteTicket, useDebounce } from '@/hooks'
+import { useTickets, useTicketFilters, useDebounce } from '@/hooks'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -10,7 +10,7 @@ import { formatDistanceToNow } from 'date-fns'
 import { Ticket } from '@/types'
 
 export const TicketsPage: React.FC = () => {
-  const { user, isAdmin } = useAuth()
+  const { user } = useAuth()
   const { filters, updateFilter, clearFilters } = useTicketFilters({
     limit: 12,
   })
@@ -23,7 +23,6 @@ export const TicketsPage: React.FC = () => {
   }, [debouncedSearch]) // No incluir updateFilter en dependencias
 
   const { data, isLoading, error } = useTickets(filters)
-  const deleteTicketMutation = useDeleteTicket()
 
   // Logs de depuración
   console.log('🔍 TicketsPage DEBUG:', {
@@ -32,15 +31,10 @@ export const TicketsPage: React.FC = () => {
     isLoading,
     error,
     hasData: (data?.data?.length || 0) > 0,
-    userRole: user?.role,
-    isAdmin,
+  userRole: user?.role,
   })
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this ticket?')) {
-      deleteTicketMutation.mutate(id)
-    }
-  }
+  // Eliminado botón Eliminar en listado; las eliminaciones se gestionan en el detalle según permisos
 
   const handleClearFilters = () => {
     clearFilters()
@@ -89,16 +83,7 @@ export const TicketsPage: React.FC = () => {
           >
             Ver
           </Link>
-          {isAdmin && (
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={() => handleDelete(ticket.id)}
-              disabled={deleteTicketMutation.isLoading}
-            >
-              Eliminar
-            </Button>
-          )}
+          {/* No mostrar eliminar en listado: la UI decide por permisos por ticket dentro del detalle */}
         </div>
       </td>
     </tr>
@@ -149,17 +134,7 @@ export const TicketsPage: React.FC = () => {
             >
               Ver
             </Link>
-            {isAdmin && (
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={() => handleDelete(ticket.id)}
-                disabled={deleteTicketMutation.isLoading}
-                className="text-xs px-2 py-1"
-              >
-                Eliminar
-              </Button>
-            )}
+            {/* Sin botón Eliminar aquí; se controla por permisos dentro del detalle */}
           </div>
         </div>
       </div>

@@ -1,9 +1,11 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useTicket, useUpdateTicket, useDeleteTicket } from '@/hooks'
+import { ticketsApi, handleApiError } from '@/services/api'
+import toast from 'react-hot-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/Button'
 import { Input, Textarea, Select } from '@/components/ui/Input'
@@ -26,12 +28,29 @@ type UpdateTicketFormData = z.infer<typeof updateTicketSchema>
 export const TicketDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { user, isAdmin } = useAuth()
+  const { user } = useAuth()
   const [isEditing, setIsEditing] = useState(false)
 
   const { data: ticketData, isLoading, error } = useTicket(id!)
   const updateTicketMutation = useUpdateTicket()
   const deleteTicketMutation = useDeleteTicket()
+  const [canDelete, setCanDelete] = useState<boolean>(false)
+
+  // Consultar permisos al montar/cambiar id. Fail-closed: si falla, ocultar botón
+  useEffect(() => {
+    let active = true
+    const run = async () => {
+      if (!id) return
+      try {
+        const p = await ticketsApi.getTicketPermissions(id)
+        if (active) setCanDelete(!!p?.canDelete)
+      } catch {
+        if (active) setCanDelete(false)
+      }
+    }
+    run()
+    return () => { active = false }
+  }, [id])
 
   // Normalizar el ticket para evitar errores con propiedades null/undefined
   const ticket = ticketData ? {
@@ -65,7 +84,10 @@ export const TicketDetailPage: React.FC = () => {
         await deleteTicketMutation.mutateAsync(id!)
         navigate('/tickets')
       } catch (error) {
-  // El error es manejado por la mutación
+        const apiError = handleApiError(error as any, 'general')
+        if ((apiError.statusCode || 0) === 403) {
+          toast.error('No autorizado')
+        }
       }
     }
   }
@@ -152,7 +174,7 @@ export const TicketDetailPage: React.FC = () => {
               Editar
             </Button>
           )}
-          {isAdmin && (
+          {canDelete && (
             <Button
               variant="danger"
               onClick={handleDelete}
